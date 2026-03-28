@@ -1,0 +1,176 @@
+package org.example;
+
+import org.jfree.chart.ChartFactory;
+import org.jfree.chart.ChartPanel;
+import org.jfree.chart.JFreeChart;
+import org.jfree.chart.annotations.XYShapeAnnotation;
+import org.jfree.chart.plot.PlotOrientation;
+import org.jfree.chart.plot.XYPlot;
+import org.jfree.chart.renderer.xy.XYLineAndShapeRenderer;
+import org.jfree.data.xy.XYSeries;
+import org.jfree.data.xy.XYSeriesCollection;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.geom.Ellipse2D;
+import java.util.List;
+
+public class HookeJeevesChartPanel extends JPanel {
+
+    private static final String BASE_TITLE = "Траектория поиска";
+    private static final Color GRID_COLOR = new Color(220, 220, 220);
+    private static final Color PATH_COLOR = new Color(0, 102, 204);
+    private static final Color CURRENT_POINT_COLOR = new Color(210, 60, 20);
+    private static final Color PIT_OUTLINE_COLOR = new Color(0, 120, 140, 80);
+    private static final Color PIT_FILL_COLOR = new Color(60, 170, 190, 28);
+
+    private static final double F1_CENTER_X = 3.0;
+    private static final double F1_CENTER_Y = 2.0;
+    private static final double F2_CENTER_X = 3.0;
+    private static final double F2_CENTER_Y = -2.0;
+
+    private final XYSeries pathSeries;
+    private final XYSeries currentPointSeries;
+    private final JFreeChart chart;
+
+    public HookeJeevesChartPanel() {
+        super(new BorderLayout());
+
+        pathSeries = new XYSeries("Траектория", false, true);
+        currentPointSeries = new XYSeries("Текущая точка", false, true);
+
+        XYSeriesCollection dataset = new XYSeriesCollection();
+        dataset.addSeries(pathSeries);
+        dataset.addSeries(currentPointSeries);
+
+        chart = ChartFactory.createXYLineChart(
+                BASE_TITLE,
+                "x",
+                "y",
+                dataset,
+                PlotOrientation.VERTICAL,
+                true,
+                true,
+                false
+        );
+
+        configurePlot(chart.getXYPlot());
+
+        ChartPanel chartPanel = new ChartPanel(chart);
+        chartPanel.setMouseWheelEnabled(true);
+        chartPanel.setDomainZoomable(true);
+        chartPanel.setRangeZoomable(true);
+        add(chartPanel, BorderLayout.CENTER);
+
+        clear();
+    }
+
+    public void clear() {
+        pathSeries.clear();
+        currentPointSeries.clear();
+        rebuildRelief(false);
+        chart.setTitle(BASE_TITLE);
+    }
+
+    public void showIterations(List<IterationData> iterations, double[] startPoint, int selectedIndex, boolean isProjectedF2) {
+        pathSeries.clear();
+        currentPointSeries.clear();
+        rebuildRelief(isProjectedF2);
+
+        if (!isValidPoint(startPoint)) {
+            chart.setTitle(BASE_TITLE);
+            return;
+        }
+
+        addPoint(pathSeries, startPoint);
+
+        int safeIndex = iterations == null || iterations.isEmpty()
+                ? -1
+                : Math.max(0, Math.min(selectedIndex, iterations.size() - 1));
+
+        if (safeIndex >= 0) {
+            for (int i = 0; i <= safeIndex; i++) {
+                addPoint(pathSeries, iterations.get(i).yNext);
+            }
+            addPoint(currentPointSeries, iterations.get(safeIndex).yNext);
+        } else {
+            addPoint(currentPointSeries, startPoint);
+        }
+
+        chart.setTitle(buildTitle(isProjectedF2, safeIndex + 1, iterations == null ? 0 : iterations.size()));
+    }
+
+    private void configurePlot(XYPlot plot) {
+        plot.setBackgroundPaint(Color.WHITE);
+        plot.setDomainGridlinePaint(GRID_COLOR);
+        plot.setRangeGridlinePaint(GRID_COLOR);
+
+        XYLineAndShapeRenderer renderer = new XYLineAndShapeRenderer();
+        renderer.setSeriesLinesVisible(0, true);
+        renderer.setSeriesShapesVisible(0, true);
+        renderer.setSeriesPaint(0, PATH_COLOR);
+        renderer.setSeriesStroke(0, new BasicStroke(2.2f));
+
+        renderer.setSeriesLinesVisible(1, false);
+        renderer.setSeriesShapesVisible(1, true);
+        renderer.setSeriesPaint(1, CURRENT_POINT_COLOR);
+        renderer.setSeriesShape(1, new Ellipse2D.Double(-5.0, -5.0, 10.0, 10.0));
+
+        plot.setRenderer(renderer);
+    }
+
+    private void rebuildRelief(boolean isProjectedF2) {
+        XYPlot plot = chart.getXYPlot();
+        plot.clearAnnotations();
+
+        double centerX = isProjectedF2 ? F2_CENTER_X : F1_CENTER_X;
+        double centerY = isProjectedF2 ? F2_CENTER_Y : F1_CENTER_Y;
+        double[][] rings = {
+                {0.35, 0.25},
+                {0.55, 0.40},
+                {0.80, 0.58},
+                {1.05, 0.75},
+                {1.35, 0.97},
+                {1.70, 1.20},
+                {2.10, 1.48},
+                {2.55, 1.80}
+        };
+
+        for (double[] ring : rings) {
+            plot.addAnnotation(createPitAnnotation(centerX, centerY, ring[0], ring[1]));
+        }
+    }
+
+    private XYShapeAnnotation createPitAnnotation(double centerX, double centerY, double radiusX, double radiusY) {
+        Shape ellipse = new Ellipse2D.Double(
+                centerX - radiusX,
+                centerY - radiusY,
+                radiusX * 2.0,
+                radiusY * 2.0
+        );
+
+        return new XYShapeAnnotation(
+                ellipse,
+                new BasicStroke(1.3f),
+                PIT_OUTLINE_COLOR,
+                PIT_FILL_COLOR
+        );
+    }
+
+    private boolean isValidPoint(double[] point) {
+        return point != null && point.length >= 2;
+    }
+
+    private void addPoint(XYSeries series, double[] point) {
+        if (isValidPoint(point)) {
+            series.add(point[0], point[1]);
+        }
+    }
+
+    private String buildTitle(boolean isProjectedF2, int currentStep, int totalSteps) {
+        if (isProjectedF2) {
+            return BASE_TITLE + " (проекция x-y), шаг " + currentStep + " из " + totalSteps;
+        }
+        return BASE_TITLE + ", шаг " + currentStep + " из " + totalSteps;
+    }
+}

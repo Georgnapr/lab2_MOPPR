@@ -1,19 +1,25 @@
 package org.example;
 
-import javax.swing.*;
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 
-public class Main {
+public final class Main {
+
+    private Main() {
+    }
+
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            try {
-                // Устанавливаем стиль оформления, соответствующий операционной системе
-                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-
-            // Создаем и отображаем главное окно
+            setSystemLookAndFeel();
             new MainFrame().setVisible(true);
         });
+    }
+
+    private static void setSystemLookAndFeel() {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }

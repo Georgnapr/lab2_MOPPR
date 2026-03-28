@@ -3,265 +3,257 @@ package org.example;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
+import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Locale;
 
 public class MainFrame extends JFrame {
 
-    private JTextField tfX, tfY, tfZ, teps;
-    private JComboBox<String> cbFunction;
+    private static final double[] START = {1.0, 1.0, 1.0};
+    private static final String DEFAULT_EPS = "0.01";
+    private static final String DEFAULT_POINT = "(1.0, 1.0, 1.0)";
+    private static final String DEFAULT_RESULT = "Δ = 1.0. Результат расчета появится после запуска.";
+    private static final String[] FUNCTIONS = {"F1(x1, x2)", "F2(x1, x2, x3)"};
+    private static final String[] COLUMNS = {
+            "k", "Δ", "Xk и F(Xk)", "J", "yj и F(yj)", "dj", "yj+Δdj и F(yj+Δdj)", "yj-Δdj и F(yj-Δdj)"
+    };
 
-    private JPanel chartPanel;
-    private JTable table;
-    private DefaultTableModel tableModel;
+    private final JTextField tfEps = new JTextField(DEFAULT_EPS, 10);
+    private final JComboBox<String> cbFunction = new JComboBox<>(FUNCTIONS);
+    private final JLabel lbStartPoint = new JLabel(DEFAULT_POINT);
+    private final JLabel lbResult = new JLabel(DEFAULT_RESULT);
+    private final JTextField tfIteration = new JTextField("1", 5);
+    private final HookeJeevesChartPanel chartPanel = new HookeJeevesChartPanel();
+    private final DefaultTableModel tableModel = new DefaultTableModel(COLUMNS, 0) {
+        @Override
+        public boolean isCellEditable(int row, int column) {
+            return false;
+        }
+    };
+    private final JTable table = new JTable(tableModel);
 
-    private JButton btnExport;
-    private JButton btnPrev, btnNext;
-    private JTextField tfIteration;
-
-    private int currentIteration = 0;
+    private int currentIteration;
+    private List<IterationData> currentIterations;
+    private double[] currentStartPoint;
+    private boolean currentProjectionIsF2;
+    private String currentResultSummary = "";
 
     public MainFrame() {
-        setTitle("Метод Хука-Дживса");
+        super("Метод Хука-Дживса");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1200, 800);
+        setSize(1400, 800);
+        setMinimumSize(new Dimension(1000, 600));
         setLocationRelativeTo(null);
-
         setLayout(new BorderLayout(10, 10));
 
-        createInputPanel();
-        createCenterPanel();
+        cbFunction.addActionListener(e -> lbStartPoint.setText(DEFAULT_POINT));
+        add(buildInputPanel(), BorderLayout.NORTH);
+        add(buildCenterPanel(), BorderLayout.CENTER);
+        add(buildNavigationPanel(), BorderLayout.SOUTH);
 
-        setMinimumSize(new Dimension(900, 600));
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+        table.setRowHeight(40);
+        table.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting() && table.getSelectedRow() >= 0) {
+                currentIteration = table.getSelectedRow();
+                tfIteration.setText(String.valueOf(currentIteration + 1));
+                refreshChart();
+            }
+        });
     }
 
-    // 🔹 ПАНЕЛЬ ВВОДА
-    private void createInputPanel() {
-
-        JPanel inputPanel = new JPanel(new GridBagLayout());
-        inputPanel.setBorder(BorderFactory.createTitledBorder("Параметры"));
-
+    private JPanel buildInputPanel() {
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createTitledBorder("Параметры"));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(5, 5, 5, 5);
 
-        tfX = new JTextField("1.0", 10);
-        tfY = new JTextField("1.0", 10);
-        tfZ = new JTextField("1.0", 10);
-        teps = new JTextField("0.01", 10);
-
-        cbFunction = new JComboBox<>(new String[]{
-                "F1(x1,x2)",
-                "F2(x1,x2,x3)"
-        });
-
         JButton btnCalc = new JButton("Старт");
         JButton btnClear = new JButton("Очистить");
-        btnExport = new JButton("Экспорт в Excel");
+        JButton btnExport = new JButton("Экспорт в Excel");
+        btnCalc.addActionListener(e -> calculate());
+        btnClear.addActionListener(e -> reset());
+        btnExport.addActionListener(e -> export());
 
-        btnExport.addActionListener(e ->
-                JOptionPane.showMessageDialog(this,
-                        "Экспорт пока не реализован")
-        );
-
-        btnCalc.addActionListener(new CalculateListener());
-        btnClear.addActionListener(e -> resetInputFields());
-
-        // --- размещение ---
-        gbc.gridx = 0; gbc.gridy = 0;
-        inputPanel.add(new JLabel("X0:"), gbc);
-
-        gbc.gridx = 1;
-        inputPanel.add(tfX, gbc);
-        gbc.gridx = 2;
-        inputPanel.add(tfY, gbc);
-        gbc.gridx = 3;
-        inputPanel.add(tfZ, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 1;
-        inputPanel.add(new JLabel("ε:"), gbc);
-
-        gbc.gridx = 1;
-        inputPanel.add(teps, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 2;
-        inputPanel.add(new JLabel("Функция:"), gbc);
-
-        gbc.gridx = 1; gbc.gridwidth = 3;
-        inputPanel.add(cbFunction, gbc);
-
-        gbc.gridwidth = 1;
-        gbc.gridy = 3;
-        gbc.gridx = 0;
-        inputPanel.add(btnCalc, gbc);
-
-        gbc.gridx = 1;
-        inputPanel.add(btnClear, gbc);
-
-        gbc.gridx = 2;
-        inputPanel.add(btnExport, gbc);
-
-        add(inputPanel, BorderLayout.NORTH);
+        add(panel, gbc, 0, 0, 1, new JLabel("X0:"));
+        add(panel, gbc, 1, 0, 3, lbStartPoint);
+        add(panel, gbc, 0, 1, 1, new JLabel("ε:"));
+        add(panel, gbc, 1, 1, 1, tfEps);
+        add(panel, gbc, 0, 2, 1, new JLabel("Функция:"));
+        add(panel, gbc, 1, 2, 3, cbFunction);
+        add(panel, gbc, 0, 3, 1, btnCalc);
+        add(panel, gbc, 1, 3, 1, btnClear);
+        add(panel, gbc, 2, 3, 1, btnExport);
+        add(panel, gbc, 0, 4, 4, lbResult);
+        return panel;
     }
 
-    // 🔹 ЦЕНТР (график + таблица)
-    private void createCenterPanel() {
+    private JPanel buildNavigationPanel() {
+        JPanel panel = new JPanel();
+        panel.setBorder(BorderFactory.createTitledBorder("Навигация по строкам"));
+        JButton btnPrev = new JButton("<");
+        JButton btnNext = new JButton(">");
+        btnPrev.addActionListener(e -> selectIteration(currentIteration - 1));
+        btnNext.addActionListener(e -> selectIteration(currentIteration + 1));
+        tfIteration.addActionListener(e -> selectIteration(parseInt(tfIteration.getText(), currentIteration + 1) - 1));
+        panel.add(btnPrev);
+        panel.add(tfIteration);
+        panel.add(btnNext);
+        return panel;
+    }
 
-        // --- панель итераций ---
-        JPanel iterationPanel = new JPanel();
-        iterationPanel.setBorder(BorderFactory.createTitledBorder("Итерация"));
-
-        btnPrev = new JButton("←");
-        btnNext = new JButton("→");
-        tfIteration = new JTextField("0", 5);
-
-        iterationPanel.add(btnPrev);
-        iterationPanel.add(tfIteration);
-        iterationPanel.add(btnNext);
-
-        btnPrev.addActionListener(e -> changeIteration(-1));
-        btnNext.addActionListener(e -> changeIteration(1));
-        tfIteration.addActionListener(e -> setIterationFromField());
-
-        add(iterationPanel, BorderLayout.SOUTH);
-
-        // --- split ---
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        splitPane.setDividerLocation(500);
-
-        // --- график ---
-        chartPanel = new JPanel(new BorderLayout());
-        chartPanel.setBorder(BorderFactory.createTitledBorder("График (заглушка)"));
-
-        JLabel chartStub = new JLabel("Здесь будет график", SwingConstants.CENTER);
-        chartPanel.add(chartStub, BorderLayout.CENTER);
-
-        // --- таблица ---
-        String[] columns = {
-                "k", "Δ", "Xk", "F(Xk)",
-                "j", "yj", "F(yj)",
-                "dj", "yj+Δdj", "F(yj+Δdj)",
-                "yj-Δdj", "F(yj-Δdj)"
-        };
-
-        tableModel = new DefaultTableModel(columns, 0);
-        table = new JTable(tableModel);
-
-        table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
-
+    private JSplitPane buildCenterPanel() {
+        chartPanel.setBorder(BorderFactory.createTitledBorder("График"));
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createTitledBorder("Итерации метода"));
-
-        // ВАЖНО: добавляем в splitPane
-        splitPane.setLeftComponent(chartPanel);
-        splitPane.setRightComponent(scroll);
-
-        add(splitPane, BorderLayout.CENTER);
+        JSplitPane pane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, chartPanel, scroll);
+        pane.setDividerLocation(380);
+        return pane;
     }
 
-    // 🔹 работа с таблицей
-    private void addIterationRow(Object... data) {
-        tableModel.addRow(data);
+    private void calculate() {
+        double eps = Math.max(parseDouble(tfEps.getText(), Double.parseDouble(DEFAULT_EPS)), Double.MIN_VALUE);
+        double[] start = cbFunction.getSelectedIndex() == 0 ? new double[]{START[0], START[1]} : START.clone();
+        HookeJeeves.Function function = cbFunction.getSelectedIndex() == 0 ? Functions::f1 : Functions::f2;
 
-        // автоскролл вниз
-        table.scrollRectToVisible(
-                table.getCellRect(table.getRowCount() - 1, 0, true)
-        );
-    }
-
-    private void clearTable() {
         tableModel.setRowCount(0);
-    }
+        currentIteration = 0;
+        currentIterations = null;
+        currentStartPoint = start.clone();
+        currentProjectionIsF2 = cbFunction.getSelectedIndex() == 1;
+        currentResultSummary = "";
+        tfIteration.setText("1");
 
-    // 🔹 сброс
-    private void resetInputFields() {
-        tfX.setText("1.0");
-        tfY.setText("1.0");
-        tfZ.setText("1.0");
-        teps.setText("0.01");
-        cbFunction.setSelectedIndex(0);
-        clearTable();
-    }
+        HookeJeeves.Result result = HookeJeeves.minimizeWithResult(function, start, HookeJeeves.INITIAL_STEP, eps);
+        currentIterations = result.iterations;
 
-    // 🔹 управление итерациями
-    private void changeIteration(int delta) {
-        currentIteration += delta;
+        for (IterationData data : result.iterations) {
+            tableModel.addRow(new Object[]{
+                    data.k,
+                    format(data.step),
+                    cell(data.x, data.fx),
+                    data.j,
+                    cell(data.y, data.fy),
+                    direction(data.directionVector),
+                    cell(data.yPlus, data.fPlus),
+                    cell(data.yMinus, data.fMinus)
+            });
+        }
 
-        if (currentIteration < 0) currentIteration = 0;
-        if (currentIteration >= table.getRowCount())
-            currentIteration = table.getRowCount() - 1;
-
-        tfIteration.setText(String.valueOf(currentIteration));
-
+        currentResultSummary = "Найденная точка: " + point(result.point)
+                + ", F(X*) = " + format(result.value)
+                + ", строк журнала: " + result.iterations.size();
+        lbResult.setText("Δ = 1.0. " + currentResultSummary);
+        refreshChart();
         if (table.getRowCount() > 0) {
-            table.setRowSelectionInterval(currentIteration, currentIteration);
+            selectIteration(0);
         }
     }
 
-    private void setIterationFromField() {
+    private void export() {
+        if (tableModel.getRowCount() == 0) {
+            return;
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Сохранить результаты");
+        chooser.setSelectedFile(new File("hooke-jeeves-results.xlsx"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        Path file = chooser.getSelectedFile().toPath();
+        if (!file.toString().toLowerCase(Locale.ROOT).endsWith(".xlsx")) {
+            file = Path.of(file + ".xlsx");
+        }
         try {
-            currentIteration = Integer.parseInt(tfIteration.getText());
-
-            if (currentIteration >= 0 && currentIteration < table.getRowCount()) {
-                table.setRowSelectionInterval(currentIteration, currentIteration);
-            }
-
-        } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "Неверный номер итерации");
+            ExcelExporter.exportResults(file, "", lbStartPoint.getText(), parseDouble(tfEps.getText(), 0.01), currentResultSummary, tableModel);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 
-    // 🔹 заглушка расчета
-    private class CalculateListener implements ActionListener {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            try {
-                double x = Double.parseDouble(tfX.getText());
-                double y = Double.parseDouble(tfY.getText());
-                double z = Double.parseDouble(tfZ.getText());
-                double eps = Double.parseDouble(teps.getText());
+    private void reset() {
+        tfEps.setText(DEFAULT_EPS);
+        cbFunction.setSelectedIndex(0);
+        lbStartPoint.setText(DEFAULT_POINT);
+        lbResult.setText(DEFAULT_RESULT);
+        tfIteration.setText("1");
+        currentIteration = 0;
+        currentIterations = null;
+        currentStartPoint = null;
+        currentProjectionIsF2 = false;
+        currentResultSummary = "";
+        tableModel.setRowCount(0);
+        chartPanel.clear();
+    }
 
-                clearTable();
-                currentIteration = 0;
-                tfIteration.setText("0");
-
-                // пример строки
-                addIterationRow(
-                        1,
-                        0.2,
-                        "(2.00, 3.00)",
-                        16.00,
-                        1,
-                        "(2.20, 3.00)",
-                        14.44,
-                        "(1,0)",
-                        "(2.20, 3.20)",
-                        17.64,
-                        "(2.20, 2.80)",
-                        11.56
-                );
-
-                addIterationRow(
-                        2,
-                        0.2,
-                        "(2.00, 3.00)",
-                        16.00,
-                        1,
-                        "(2.20, 3.00)",
-                        14.44,
-                        "(1,0)",
-                        "(2.20, 3.20)",
-                        17.64,
-                        "(2.20, 2.80)",
-                        11.56
-                );
-
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(MainFrame.this,
-                        "Ошибка ввода",
-                        "Ошибка",
-                        JOptionPane.ERROR_MESSAGE);
-            }
+    private void selectIteration(int index) {
+        if (table.getRowCount() == 0) {
+            return;
         }
+        currentIteration = Math.max(0, Math.min(index, table.getRowCount() - 1));
+        tfIteration.setText(String.valueOf(currentIteration + 1));
+        table.setRowSelectionInterval(currentIteration, currentIteration);
+        refreshChart();
+    }
+
+    private void refreshChart() {
+        chartPanel.showIterations(currentIterations, currentStartPoint, currentIteration, currentProjectionIsF2);
+    }
+
+    private static void add(JPanel panel, GridBagConstraints gbc, int x, int y, int width, Component component) {
+        gbc.gridx = x;
+        gbc.gridy = y;
+        gbc.gridwidth = width;
+        panel.add(component, gbc);
+    }
+
+    private static double parseDouble(String value, double fallback) {
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static int parseInt(String value, int fallback) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static String format(double value) {
+        return String.format(Locale.US, "%.3f", value);
+    }
+
+    private static String point(double[] point) {
+        StringBuilder sb = new StringBuilder("(");
+        for (int i = 0; i < point.length; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(format(point[i]));
+        }
+        return sb.append(")").toString();
+    }
+
+    private static String cell(double[] point, double value) {
+        return "<html>" + point(point) + "<br>F = " + format(value) + "</html>";
+    }
+
+    private static String direction(double[] vector) {
+        StringBuilder sb = new StringBuilder("(");
+        for (int i = 0; i < vector.length; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(String.format(Locale.US, "%.0f", vector[i]));
+        }
+        return sb.append(")").toString();
     }
 }
