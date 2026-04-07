@@ -12,9 +12,8 @@ import java.util.Locale;
 
 public class MainFrame extends JFrame {
 
-    private static final double[] START = {1.0, 1.0, 1.0};
     private static final String DEFAULT_EPS = "0.01";
-    private static final String DEFAULT_POINT = "(1.0, 1.0, 1.0)";
+    private static final String DEFAULT_COORD = "1.0";
     private static final String DEFAULT_RESULT = "Δ = 1.0. Результат расчета появится после запуска.";
     private static final String[] FUNCTIONS = {"F1(x1, x2)", "F2(x1, x2, x3)"};
     private static final String[] COLUMNS = {
@@ -23,7 +22,11 @@ public class MainFrame extends JFrame {
 
     private final JTextField tfEps = new JTextField(DEFAULT_EPS, 10);
     private final JComboBox<String> cbFunction = new JComboBox<>(FUNCTIONS);
-    private final JLabel lbStartPoint = new JLabel(DEFAULT_POINT);
+    private final JTextField tfX1 = new JTextField(DEFAULT_COORD, 8);
+    private final JTextField tfX2 = new JTextField(DEFAULT_COORD, 8);
+    private final JTextField tfX3 = new JTextField(DEFAULT_COORD, 8);
+    private final JLabel lbX3 = new JLabel("x3:");
+    private final JPanel startPointPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
     private final JLabel lbResult = new JLabel(DEFAULT_RESULT);
     private final JTextField tfIteration = new JTextField("1", 5);
     private final HookeJeevesChartPanel chartPanel = new HookeJeevesChartPanel();
@@ -49,7 +52,14 @@ public class MainFrame extends JFrame {
         setLocationRelativeTo(null);
         setLayout(new BorderLayout(10, 10));
 
-        cbFunction.addActionListener(e -> lbStartPoint.setText(DEFAULT_POINT));
+        startPointPanel.add(new JLabel("x1:"));
+        startPointPanel.add(tfX1);
+        startPointPanel.add(new JLabel("x2:"));
+        startPointPanel.add(tfX2);
+        startPointPanel.add(lbX3);
+        startPointPanel.add(tfX3);
+        cbFunction.addActionListener(e -> updateStartPointFieldsForFunction());
+        updateStartPointFieldsForFunction();
         add(buildInputPanel(), BorderLayout.NORTH);
         add(buildCenterPanel(), BorderLayout.CENTER);
         add(buildNavigationPanel(), BorderLayout.SOUTH);
@@ -80,7 +90,7 @@ public class MainFrame extends JFrame {
         btnExport.addActionListener(e -> export());
 
         add(panel, gbc, 0, 0, 1, new JLabel("X0:"));
-        add(panel, gbc, 1, 0, 3, lbStartPoint);
+        add(panel, gbc, 1, 0, 3, startPointPanel);
         add(panel, gbc, 0, 1, 1, new JLabel("ε:"));
         add(panel, gbc, 1, 1, 1, tfEps);
         add(panel, gbc, 0, 2, 1, new JLabel("Функция:"));
@@ -117,7 +127,29 @@ public class MainFrame extends JFrame {
 
     private void calculate() {
         double eps = Math.max(parseDouble(tfEps.getText(), Double.parseDouble(DEFAULT_EPS)), Double.MIN_VALUE);
-        double[] start = cbFunction.getSelectedIndex() == 0 ? new double[]{START[0], START[1]} : START.clone();
+        Double x1 = parseDoubleOrNull(tfX1.getText());
+        Double x2 = parseDoubleOrNull(tfX2.getText());
+        if (x1 == null || x2 == null) {
+            JOptionPane.showMessageDialog(this,
+                    "Введите корректные числа для x1 и x2.",
+                    "Некорректная начальная точка",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        double[] start;
+        if (cbFunction.getSelectedIndex() == 0) {
+            start = new double[]{x1, x2};
+        } else {
+            Double x3 = parseDoubleOrNull(tfX3.getText());
+            if (x3 == null) {
+                JOptionPane.showMessageDialog(this,
+                        "Введите корректное число для x3.",
+                        "Некорректная начальная точка",
+                        JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            start = new double[]{x1, x2, x3};
+        }
         HookeJeeves.Function function = cbFunction.getSelectedIndex() == 0 ? Functions::f1 : Functions::f2;
 
         tableModel.setRowCount(0);
@@ -169,7 +201,7 @@ public class MainFrame extends JFrame {
             file = Path.of(file + ".xlsx");
         }
         try {
-            ExcelExporter.exportResults(file, "", lbStartPoint.getText(), parseDouble(tfEps.getText(), 0.01), currentResultSummary, tableModel);
+            ExcelExporter.exportResults(file, "", point(currentStartPoint), parseDouble(tfEps.getText(), 0.01), currentResultSummary, tableModel);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -178,7 +210,10 @@ public class MainFrame extends JFrame {
     private void reset() {
         tfEps.setText(DEFAULT_EPS);
         cbFunction.setSelectedIndex(0);
-        lbStartPoint.setText(DEFAULT_POINT);
+        tfX1.setText(DEFAULT_COORD);
+        tfX2.setText(DEFAULT_COORD);
+        tfX3.setText(DEFAULT_COORD);
+        updateStartPointFieldsForFunction();
         lbResult.setText(DEFAULT_RESULT);
         tfIteration.setText("1");
         currentIteration = 0;
@@ -209,6 +244,23 @@ public class MainFrame extends JFrame {
         gbc.gridy = y;
         gbc.gridwidth = width;
         panel.add(component, gbc);
+    }
+
+    private void updateStartPointFieldsForFunction() {
+        boolean f2 = cbFunction.getSelectedIndex() == 1;
+        lbX3.setEnabled(f2);
+        tfX3.setEnabled(f2);
+    }
+
+    private static Double parseDoubleOrNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static double parseDouble(String value, double fallback) {
