@@ -39,7 +39,7 @@ public final class HookeJeeves {
         double baseValue = f.apply(base);
 
         int k = 0;
-        while (step > eps) {
+        while (true) {
             k++;
 
             double[] currentX = x.clone();
@@ -53,6 +53,9 @@ public final class HookeJeeves {
                 baseValue = newValue;
                 x = createPatternPoint(newPoint, previousBase);
             } else {
+                if (step <= eps) {
+                    break;
+                }
                 step /= 2.0;
                 x = base.clone();
             }
