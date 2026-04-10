@@ -20,6 +20,7 @@ public class HookeJeevesChartPanel extends JPanel {
     private static final String BASE_TITLE = "Траектория поиска";
     private static final Color GRID_COLOR = new Color(220, 220, 220);
     private static final Color PATH_COLOR = new Color(0, 102, 204);
+    private static final Color FAILED_PATH_COLOR = new Color(200, 45, 45);
     private static final Color CURRENT_POINT_COLOR = new Color(210, 60, 20);
     private static final Color PIT_OUTLINE_COLOR = new Color(0, 120, 140, 80);
     private static final Color PIT_FILL_COLOR = new Color(60, 170, 190, 28);
@@ -30,6 +31,7 @@ public class HookeJeevesChartPanel extends JPanel {
     private static final double F2_CENTER_Y = -2.0;
 
     private final XYSeries pathSeries;
+    private final XYSeries failedPathSeries;
     private final XYSeries currentPointSeries;
     private final JFreeChart chart;
 
@@ -37,10 +39,12 @@ public class HookeJeevesChartPanel extends JPanel {
         super(new BorderLayout());
 
         pathSeries = new XYSeries("Траектория", false, true);
+        failedPathSeries = new XYSeries("Неудачное направление", false, true);
         currentPointSeries = new XYSeries("Текущая точка", false, true);
 
         XYSeriesCollection dataset = new XYSeriesCollection();
         dataset.addSeries(pathSeries);
+        dataset.addSeries(failedPathSeries);
         dataset.addSeries(currentPointSeries);
 
         chart = ChartFactory.createXYLineChart(
@@ -67,6 +71,7 @@ public class HookeJeevesChartPanel extends JPanel {
 
     public void clear() {
         pathSeries.clear();
+        failedPathSeries.clear();
         currentPointSeries.clear();
         rebuildRelief(false);
         chart.setTitle(BASE_TITLE);
@@ -74,6 +79,7 @@ public class HookeJeevesChartPanel extends JPanel {
 
     public void showIterations(List<IterationData> iterations, double[] startPoint, int selectedIndex, boolean isProjectedF2) {
         pathSeries.clear();
+        failedPathSeries.clear();
         currentPointSeries.clear();
         rebuildRelief(isProjectedF2);
 
@@ -89,10 +95,19 @@ public class HookeJeevesChartPanel extends JPanel {
                 : Math.max(0, Math.min(selectedIndex, iterations.size() - 1));
 
         if (safeIndex >= 0) {
-            for (int i = 0; i <= safeIndex; i++) {
-                addPoint(pathSeries, iterations.get(i).yNext);
+            int i = 0;
+            while (i <= safeIndex) {
+                int iteration = iterations.get(i).k;
+                int groupStart = i;
+                while (i <= safeIndex && iterations.get(i).k == iteration) {
+                    i++;
+                }
+                int visibleGroupEnd = i - 1;
+                boolean groupComplete = i >= iterations.size() || iterations.get(i).k != iteration;
+                boolean nextGroupVisible = i <= safeIndex;
+                renderIterationGroup(iterations, groupStart, visibleGroupEnd, groupComplete, nextGroupVisible);
             }
-            addPoint(currentPointSeries, iterations.get(safeIndex).yNext);
+            addCurrentPoint(iterations.get(safeIndex));
         } else {
             addPoint(currentPointSeries, startPoint);
         }
@@ -111,10 +126,15 @@ public class HookeJeevesChartPanel extends JPanel {
         renderer.setSeriesPaint(0, PATH_COLOR);
         renderer.setSeriesStroke(0, new BasicStroke(2.2f));
 
-        renderer.setSeriesLinesVisible(1, false);
+        renderer.setSeriesLinesVisible(1, true);
         renderer.setSeriesShapesVisible(1, true);
-        renderer.setSeriesPaint(1, CURRENT_POINT_COLOR);
-        renderer.setSeriesShape(1, new Ellipse2D.Double(-5.0, -5.0, 10.0, 10.0));
+        renderer.setSeriesPaint(1, FAILED_PATH_COLOR);
+        renderer.setSeriesStroke(1, new BasicStroke(2.2f));
+
+        renderer.setSeriesLinesVisible(2, false);
+        renderer.setSeriesShapesVisible(2, true);
+        renderer.setSeriesPaint(2, CURRENT_POINT_COLOR);
+        renderer.setSeriesShape(2, new Ellipse2D.Double(-5.0, -5.0, 10.0, 10.0));
 
         plot.setRenderer(renderer);
     }
@@ -157,14 +177,125 @@ public class HookeJeevesChartPanel extends JPanel {
         );
     }
 
+    private void renderIterationGroup(
+            List<IterationData> iterations,
+            int groupStart,
+            int groupEnd,
+            boolean groupComplete,
+            boolean nextGroupVisible
+    ) {
+        if (!groupComplete) {
+            renderPartialGroup(iterations, groupStart, groupEnd);
+            return;
+        }
+        IterationData last = iterations.get(groupEnd);
+        if (last.patternPoint != null) {
+            renderAcceptedGroup(iterations, groupStart, groupEnd, nextGroupVisible);
+        } else {
+            renderRejectedGroup(iterations, groupStart, groupEnd);
+        }
+    }
+
+    private void renderPartialGroup(List<IterationData> iterations, int groupStart, int groupEnd) {
+        IterationData first = iterations.get(groupStart);
+        if (!samePoint(getLastAcceptedPoint(), first.y)) {
+            addPoint(pathSeries, first.y);
+        }
+        for (int i = groupStart; i <= groupEnd; i++) {
+            IterationData data = iterations.get(i);
+            if (data.successfulExploration) {
+                addPoint(pathSeries, data.yNext);
+            }
+        }
+    }
+
+    private void renderAcceptedGroup(List<IterationData> iterations, int groupStart, int groupEnd, boolean nextGroupVisible) {
+        IterationData first = iterations.get(groupStart);
+        if (!samePoint(getLastAcceptedPoint(), first.y)) {
+            addPoint(pathSeries, first.y);
+        }
+        for (int i = groupStart; i <= groupEnd; i++) {
+            IterationData data = iterations.get(i);
+            if (data.successfulExploration) {
+                addPoint(pathSeries, data.yNext);
+            }
+        }
+        if (!nextGroupVisible) {
+            IterationData last = iterations.get(groupEnd);
+            if (!samePoint(getLastAcceptedPoint(), last.currentPoint)) {
+                addPoint(pathSeries, last.currentPoint);
+            }
+        }
+    }
+
+    private void renderRejectedGroup(List<IterationData> iterations, int groupStart, int groupEnd) {
+        IterationData first = iterations.get(groupStart);
+        double[] failedStart = getLastAcceptedPoint();
+        if (!isValidPoint(failedStart)) {
+            failedStart = first.x;
+        }
+        appendFailedPoint(failedStart);
+        if (!samePoint(failedStart, first.y)) {
+            appendFailedPoint(first.y);
+        }
+        for (int i = groupStart; i <= groupEnd; i++) {
+            IterationData data = iterations.get(i);
+            if (data.successfulExploration) {
+                appendFailedPoint(data.yNext);
+            }
+        }
+        breakFailedPath();
+    }
+
     private boolean isValidPoint(double[] point) {
         return point != null && point.length >= 2;
+    }
+
+    private boolean samePoint(double[] left, double[] right) {
+        if (!isValidPoint(left) || !isValidPoint(right)) {
+            return false;
+        }
+        return Double.compare(left[0], right[0]) == 0
+                && Double.compare(left[1], right[1]) == 0;
     }
 
     private void addPoint(XYSeries series, double[] point) {
         if (isValidPoint(point)) {
             series.add(point[0], point[1]);
         }
+    }
+
+    private void appendFailedPoint(double[] point) {
+        if (isValidPoint(point)) {
+            failedPathSeries.add(point[0], point[1]);
+        }
+    }
+
+    private void breakFailedPath() {
+        failedPathSeries.add(Double.NaN, Double.NaN);
+    }
+
+    private void addCurrentPoint(IterationData data) {
+        if (isValidPoint(data.currentPoint)) {
+            addPoint(currentPointSeries, data.currentPoint);
+        } else if (data.patternPoint != null) {
+            addPoint(currentPointSeries, data.patternPoint);
+        } else {
+            addPoint(currentPointSeries, data.yNext);
+        }
+    }
+
+    private double[] getLastAcceptedPoint() {
+        if (pathSeries.isEmpty()) {
+            return null;
+        }
+        int index = pathSeries.getItemCount() - 1;
+        Number x = pathSeries.getX(index);
+        Number y = pathSeries.getY(index);
+        if (x == null || y == null || Double.isNaN(x.doubleValue()) || Double.isNaN(y.doubleValue())) {
+            return null;
+        }
+        return new double[]{x.doubleValue(), y.doubleValue()};
     }
 
     private String buildTitle(boolean isProjectedF2, int currentStep, int totalSteps) {

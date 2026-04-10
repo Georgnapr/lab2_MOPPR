@@ -30,44 +30,49 @@ public final class HookeJeeves {
             Function f,
             double[] x0,
             double step,
+            double alpha,
             double eps
     ) {
         List<IterationData> iterations = new ArrayList<>();
 
-        double[] x = x0.clone();
-        double[] base = x0.clone();
-        double baseValue = f.apply(base);
+        double[] basePoint = x0.clone();
+        double[] trialPoint = x0.clone();
+        double baseValue = f.apply(basePoint);
 
         int k = 0;
         while (true) {
             k++;
 
-            double[] currentX = x.clone();
-            double currentFx = f.apply(currentX);
-            double[] newPoint = explore(f, currentX, step, iterations, k, currentX, currentFx);
-            double newValue = f.apply(newPoint);
+            double[] searchStart = trialPoint.clone();
+            int iterationLogStart = iterations.size();
+            double[] exploredPoint = explore(f, searchStart, step, iterations, k, basePoint, baseValue);
+            double exploredValue = f.apply(exploredPoint);
 
-            if (newValue < baseValue) {
-                double[] previousBase = base;
-                base = newPoint;
-                baseValue = newValue;
-                x = createPatternPoint(newPoint, previousBase);
+            if (exploredValue < baseValue) {
+                double[] previousBasePoint = basePoint.clone();
+                double[] currentBasePoint = exploredPoint.clone();
+                basePoint = currentBasePoint;
+                baseValue = exploredValue;
+                trialPoint = createPatternPoint(currentBasePoint, previousBasePoint, alpha);
+                attachPatternPoint(iterations, iterationLogStart, k, trialPoint);
             } else {
                 if (step <= eps) {
+                    attachCurrentPoint(iterations, iterationLogStart, k, basePoint);
                     break;
                 }
                 step /= 2.0;
-                x = base.clone();
+                trialPoint = basePoint.clone();
+                attachCurrentPoint(iterations, iterationLogStart, k, trialPoint);
             }
         }
 
-        return new Result(iterations, base.clone(), baseValue);
+        return new Result(iterations, basePoint.clone(), baseValue);
     }
 
-    private static double[] createPatternPoint(double[] newPoint, double[] previousBase) {
-        double[] pattern = new double[newPoint.length];
-        for (int i = 0; i < newPoint.length; i++) {
-            pattern[i] = newPoint[i] + (newPoint[i] - previousBase[i]);
+    private static double[] createPatternPoint(double[] x2, double[] x1, double alpha) {
+        double[] pattern = new double[x2.length];
+        for (int i = 0; i < x2.length; i++) {
+            pattern[i] = x2[i] + alpha * (x2[i] - x1[i]);
         }
         return pattern;
     }
@@ -134,13 +139,78 @@ public final class HookeJeeves {
                     yMinus,
                     fMinus,
                     best.clone(),
-                    bestVal
+                    bestVal,
+                    bestVal < fCurrent,
+                    null,
+                    best.clone()
             ));
 
             y = best;
         }
 
         return y;
+    }
+
+    private static void attachPatternPoint(List<IterationData> log, int iterationLogStart, int iteration, double[] patternPoint) {
+        for (int i = log.size() - 1; i >= iterationLogStart; i--) {
+            IterationData data = log.get(i);
+            if (data.k != iteration) {
+                continue;
+            }
+            log.set(i, new IterationData(
+                    data.k,
+                    data.step,
+                    data.x,
+                    data.fx,
+                    data.j,
+                    data.y,
+                    data.fy,
+                    data.direction,
+                    data.directionVector,
+                    data.lambda,
+                    data.yPlus,
+                    data.fPlus,
+                    data.yMinus,
+                    data.fMinus,
+                data.yNext,
+                data.fNext,
+                data.successfulExploration,
+                patternPoint,
+                patternPoint
+            ));
+            return;
+        }
+    }
+
+    private static void attachCurrentPoint(List<IterationData> log, int iterationLogStart, int iteration, double[] currentPoint) {
+        for (int i = log.size() - 1; i >= iterationLogStart; i--) {
+            IterationData data = log.get(i);
+            if (data.k != iteration) {
+                continue;
+            }
+            log.set(i, new IterationData(
+                data.k,
+                data.step,
+                data.x,
+                data.fx,
+                data.j,
+                data.y,
+                data.fy,
+                data.direction,
+                data.directionVector,
+                data.lambda,
+                data.yPlus,
+                data.fPlus,
+                data.yMinus,
+                data.fMinus,
+                data.yNext,
+                data.fNext,
+                data.successfulExploration,
+                data.patternPoint,
+                currentPoint
+            ));
+            return;
+        }
     }
 
     private static double[] createDirectionVector(int size, int index, double value) {

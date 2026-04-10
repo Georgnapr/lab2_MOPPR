@@ -13,20 +13,25 @@ import java.util.Locale;
 public class MainFrame extends JFrame {
 
     private static final String DEFAULT_EPS = "0.01";
+    private static final String DEFAULT_DELTA = "1.0";
+    private static final String DEFAULT_ALPHA = "1.0";
     private static final String DEFAULT_COORD = "1.0";
-    private static final String DEFAULT_RESULT = "Δ = 1.0. Результат расчета появится после запуска.";
+    private static final String DEFAULT_RESULT = "Δ = " + DEFAULT_DELTA + ", α = " + DEFAULT_ALPHA + ". Результат расчета появится после запуска.";
     private static final String[] FUNCTIONS = {"F1(x1, x2)", "F2(x1, x2, x3)"};
     private static final String[] COLUMNS = {
             "k", "Δ", "Xk и F(Xk)", "J", "yj и F(yj)", "dj", "yj+Δdj и F(yj+Δdj)", "yj-Δdj и F(yj-Δdj)"
     };
 
-    private final JTextField tfEps = new JTextField(DEFAULT_EPS, 10);
+    private final JTextField tfEps = new JTextField(DEFAULT_EPS, 8);
+    private final JTextField tfDelta = new JTextField(DEFAULT_DELTA, 8);
+    private final JTextField tfAlpha = new JTextField(DEFAULT_ALPHA, 8);
     private final JComboBox<String> cbFunction = new JComboBox<>(FUNCTIONS);
     private final JTextField tfX1 = new JTextField(DEFAULT_COORD, 8);
     private final JTextField tfX2 = new JTextField(DEFAULT_COORD, 8);
     private final JTextField tfX3 = new JTextField(DEFAULT_COORD, 8);
     private final JLabel lbX3 = new JLabel("x3:");
     private final JPanel startPointPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+    private final JPanel advancedParamsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
     private final JLabel lbResult = new JLabel(DEFAULT_RESULT);
     private final JTextField tfIteration = new JTextField("1", 5);
     private final HookeJeevesChartPanel chartPanel = new HookeJeevesChartPanel();
@@ -58,6 +63,14 @@ public class MainFrame extends JFrame {
         startPointPanel.add(tfX2);
         startPointPanel.add(lbX3);
         startPointPanel.add(tfX3);
+
+        advancedParamsPanel.add(new JLabel("ε:  "));
+        advancedParamsPanel.add(tfEps);
+        advancedParamsPanel.add(new JLabel("Δ:  "));
+        advancedParamsPanel.add(tfDelta);
+        advancedParamsPanel.add(new JLabel("α:  "));
+        advancedParamsPanel.add(tfAlpha);
+
         cbFunction.addActionListener(e -> updateStartPointFieldsForFunction());
         updateStartPointFieldsForFunction();
         add(buildInputPanel(), BorderLayout.NORTH);
@@ -91,8 +104,8 @@ public class MainFrame extends JFrame {
 
         add(panel, gbc, 0, 0, 1, new JLabel("X0:"));
         add(panel, gbc, 1, 0, 3, startPointPanel);
-        add(panel, gbc, 0, 1, 1, new JLabel("ε:"));
-        add(panel, gbc, 1, 1, 1, tfEps);
+        add(panel, gbc, 0, 1, 1, new JLabel("Доп. параметры:"));
+        add(panel, gbc, 1, 1, 3, advancedParamsPanel);
         add(panel, gbc, 0, 2, 1, new JLabel("Функция:"));
         add(panel, gbc, 1, 2, 3, cbFunction);
         add(panel, gbc, 0, 3, 1, btnCalc);
@@ -127,6 +140,8 @@ public class MainFrame extends JFrame {
 
     private void calculate() {
         double eps = Math.max(parseDouble(tfEps.getText(), Double.parseDouble(DEFAULT_EPS)), Double.MIN_VALUE);
+        double delta = Math.max(parseDouble(tfDelta.getText(), Double.parseDouble(DEFAULT_DELTA)), Double.MIN_VALUE);
+        double alpha = Math.max(parseDouble(tfAlpha.getText(), Double.parseDouble(DEFAULT_ALPHA)), 0.0);
         Double x1 = parseDoubleOrNull(tfX1.getText());
         Double x2 = parseDoubleOrNull(tfX2.getText());
         if (x1 == null || x2 == null) {
@@ -160,7 +175,7 @@ public class MainFrame extends JFrame {
         currentResultSummary = "";
         tfIteration.setText("1");
 
-        HookeJeeves.Result result = HookeJeeves.minimizeWithResult(function, start, HookeJeeves.INITIAL_STEP, eps);
+        HookeJeeves.Result result = HookeJeeves.minimizeWithResult(function, start, delta, alpha, eps);
         currentIterations = result.iterations;
 
         for (IterationData data : result.iterations) {
@@ -171,15 +186,15 @@ public class MainFrame extends JFrame {
                     data.j,
                     cell(data.y, data.fy),
                     direction(data.directionVector),
-                    cell(data.yPlus, data.fPlus),
-                    cell(data.yMinus, data.fMinus)
+                    candidateCell(data.yPlus, data.fPlus, data.fy),
+                    candidateCell(data.yMinus, data.fMinus, data.fy)
             });
         }
 
         currentResultSummary = "Найденная точка: " + point(result.point)
                 + ", F(X*) = " + format(result.value)
                 + ", строк журнала: " + result.iterations.size();
-        lbResult.setText("Δ = 1.0. " + currentResultSummary);
+        lbResult.setText("Δ = " + format(delta) + ", α = " + format(alpha) + ". " + currentResultSummary);
         refreshChart();
         if (table.getRowCount() > 0) {
             selectIteration(0);
@@ -209,6 +224,8 @@ public class MainFrame extends JFrame {
 
     private void reset() {
         tfEps.setText(DEFAULT_EPS);
+        tfDelta.setText(DEFAULT_DELTA);
+        tfAlpha.setText(DEFAULT_ALPHA);
         cbFunction.setSelectedIndex(0);
         tfX1.setText(DEFAULT_COORD);
         tfX2.setText(DEFAULT_COORD);
@@ -296,6 +313,11 @@ public class MainFrame extends JFrame {
 
     private static String cell(double[] point, double value) {
         return "<html>" + point(point) + "<br>F = " + format(value) + "</html>";
+    }
+
+    private static String candidateCell(double[] point, double candidateValue, double currentValue) {
+        String status = candidateValue < currentValue ? "(S)" : "(F)";
+        return "<html>" + point(point) + "<br>" + format(candidateValue) + status + "</html>";
     }
 
     private static String direction(double[] vector) {

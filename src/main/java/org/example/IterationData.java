@@ -23,6 +23,9 @@ public class IterationData {
 
     public final double[] yNext;
     public final double fNext;
+    public final boolean successfulExploration;
+    public final double[] patternPoint;
+    public final double[] currentPoint;
 
     public IterationData(
             int k,
@@ -40,7 +43,10 @@ public class IterationData {
             double[] yMinus,
             double fMinus,
             double[] yNext,
-            double fNext
+            double fNext,
+            boolean successfulExploration,
+            double[] patternPoint,
+            double[] currentPoint
     ) {
         this.k = k;
         this.step = step;
@@ -58,5 +64,8 @@ public class IterationData {
         this.fMinus = fMinus;
         this.yNext = yNext.clone();
         this.fNext = fNext;
+        this.successfulExploration = successfulExploration;
+        this.patternPoint = patternPoint == null ? null : patternPoint.clone();
+        this.currentPoint = currentPoint == null ? null : currentPoint.clone();
     }
 }
